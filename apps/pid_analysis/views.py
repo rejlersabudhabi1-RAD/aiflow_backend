@@ -35,8 +35,35 @@ class PIDDrawingViewSet(viewsets.ModelViewSet):
         
         POST /api/v1/pid/drawings/upload/
         """
+        print(f"[DEBUG] ===== UPLOAD REQUEST RECEIVED =====")
+        print(f"[DEBUG] User: {request.user} (authenticated: {request.user.is_authenticated})")
+        print(f"[DEBUG] Content-Type: {request.content_type}")
+        print(f"[DEBUG] Request data keys: {list(request.data.keys())}")
+        print(f"[DEBUG] Request FILES: {list(request.FILES.keys())}")
+        
+        # Debug all form fields
+        for key, value in request.data.items():
+            if key == 'file':
+                file_obj = request.FILES.get('file')
+                if file_obj:
+                    print(f"[DEBUG]   {key}: [File: {file_obj.name}, {file_obj.size} bytes, {file_obj.content_type}]")
+                else:
+                    print(f"[DEBUG]   {key}: {value}")
+            else:
+                print(f"[DEBUG]   {key}: '{value}' (type: {type(value).__name__})")
+        
+        # Validate request data
         serializer = PIDDrawingUploadSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
+        
+        if not serializer.is_valid():
+            print(f"[ERROR] Validation failed: {serializer.errors}")
+            return Response(
+                serializer.errors,
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        print(f"[DEBUG] Serializer validated successfully")
+        print(f"[DEBUG] Validated data: {serializer.validated_data.keys()}")
         
         # Create PIDDrawing
         file = serializer.validated_data['file']
@@ -55,14 +82,18 @@ class PIDDrawingViewSet(viewsets.ModelViewSet):
         # Auto-analyze if requested
         if serializer.validated_data.get('auto_analyze', True):
             try:
+                print(f"[DEBUG] Starting auto-analysis for drawing ID: {drawing.id}")
                 # Start analysis
                 drawing.status = 'processing'
                 drawing.analysis_started_at = timezone.now()
                 drawing.save()
                 
                 # Perform analysis
+                print(f"[DEBUG] Initializing PIDAnalysisService")
                 analysis_service = PIDAnalysisService()
+                print(f"[DEBUG] Calling analyze_pid_drawing with path: {drawing.file.path}")
                 analysis_result = analysis_service.analyze_pid_drawing(drawing.file.path)
+                print(f"[DEBUG] Analysis completed, result keys: {list(analysis_result.keys())}")
                 
                 # Create report
                 report = PIDAnalysisReport.objects.create(
@@ -110,16 +141,30 @@ class PIDDrawingViewSet(viewsets.ModelViewSet):
                 drawing.save()
                 
             except Exception as e:
+                print(f"[ERROR] Analysis failed: {type(e).__name__}: {str(e)}")
+                import traceback
+                traceback.print_exc()
+                
                 drawing.status = 'failed'
                 drawing.save()
+                
                 return Response(
-                    {'error': f'Analysis failed: {str(e)}'},
+                    {
+                        'success': False,
+                        'error': f'Analysis failed: {str(e)}',
+                        'error_type': type(e).__name__,
+                        'drawing_id': drawing.id
+                    },
                     status=status.HTTP_500_INTERNAL_SERVER_ERROR
                 )
         
         # Return created drawing
+        response_data = PIDDrawingSerializer(drawing).data
+        response_data['success'] = True
+        print(f"[DEBUG] Upload successful, drawing ID: {drawing.id}, status: {drawing.status}")
+        
         return Response(
-            PIDDrawingSerializer(drawing).data,
+            response_data,
             status=status.HTTP_201_CREATED
         )
     

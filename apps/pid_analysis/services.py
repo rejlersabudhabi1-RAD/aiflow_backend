@@ -4,10 +4,13 @@ AI-powered P&ID verification using OpenAI GPT-4 Vision
 """
 import os
 import base64
+import io
 from datetime import datetime
 from typing import Dict, List, Any
 from django.conf import settings
 from openai import OpenAI
+import fitz  # PyMuPDF
+from PIL import Image
 
 
 class PIDAnalysisService:
@@ -132,10 +135,43 @@ Now analyze the provided P&ID drawing and return ONLY the JSON response."""
             raise ValueError("OPENAI_API_KEY is not configured")
         self.client = OpenAI(api_key=api_key)
     
-    def encode_pdf_to_base64(self, pdf_path: str) -> str:
-        """Encode PDF file to base64 for OpenAI API"""
-        with open(pdf_path, 'rb') as pdf_file:
-            return base64.b64encode(pdf_file.read()).decode('utf-8')
+    def pdf_to_images(self, pdf_path: str, dpi: int = 200) -> List[str]:
+        """
+        Convert PDF pages to base64-encoded images using PyMuPDF
+        
+        Args:
+            pdf_path: Path to the PDF file
+            dpi: Resolution for image conversion (default 200 for good quality)
+        
+        Returns:
+            List of base64-encoded PNG images
+        """
+        images_base64 = []
+        
+        # Open PDF with PyMuPDF
+        pdf_document = fitz.open(pdf_path)
+        
+        try:
+            # Convert each page to image
+            for page_num in range(len(pdf_document)):
+                page = pdf_document[page_num]
+                
+                # Render page to image (matrix for higher DPI)
+                zoom = dpi / 72  # 72 is default DPI
+                mat = fitz.Matrix(zoom, zoom)
+                pix = page.get_pixmap(matrix=mat)
+                
+                # Convert to PIL Image
+                img_data = pix.tobytes("png")
+                
+                # Encode to base64
+                img_base64 = base64.b64encode(img_data).decode('utf-8')
+                images_base64.append(img_base64)
+        
+        finally:
+            pdf_document.close()
+        
+        return images_base64
     
     def analyze_pid_drawing(self, pdf_path: str) -> Dict[str, Any]:
         """
@@ -148,12 +184,33 @@ Now analyze the provided P&ID drawing and return ONLY the JSON response."""
             Dictionary containing analysis results
         """
         try:
-            # Encode PDF to base64
-            pdf_base64 = self.encode_pdf_to_base64(pdf_path)
+            # Convert PDF pages to images
+            images_base64 = self.pdf_to_images(pdf_path)
+            
+            if not images_base64:
+                raise ValueError("Failed to convert PDF to images")
+            
+            # Build message content with all page images
+            message_content = [
+                {
+                    "type": "text",
+                    "text": self.ANALYSIS_PROMPT
+                }
+            ]
+            
+            # Add each page image
+            for idx, img_base64 in enumerate(images_base64):
+                message_content.append({
+                    "type": "image_url",
+                    "image_url": {
+                        "url": f"data:image/png;base64,{img_base64}",
+                        "detail": "high"
+                    }
+                })
             
             # Call OpenAI API with vision capabilities
             response = self.client.chat.completions.create(
-                model="gpt-4-vision-preview",  # or "gpt-4-turbo" for better PDF support
+                model="gpt-4o",
                 messages=[
                     {
                         "role": "system",
@@ -161,19 +218,7 @@ Now analyze the provided P&ID drawing and return ONLY the JSON response."""
                     },
                     {
                         "role": "user",
-                        "content": [
-                            {
-                                "type": "text",
-                                "text": self.ANALYSIS_PROMPT
-                            },
-                            {
-                                "type": "image_url",
-                                "image_url": {
-                                    "url": f"data:application/pdf;base64,{pdf_base64}",
-                                    "detail": "high"
-                                }
-                            }
-                        ]
+                        "content": message_content
                     }
                 ],
                 max_tokens=4096,
@@ -183,6 +228,12 @@ Now analyze the provided P&ID drawing and return ONLY the JSON response."""
             # Extract and parse JSON response
             result_text = response.choices[0].message.content
             
+            # Log raw response for debugging
+            print(f"[DEBUG] OpenAI Raw Response (first 500 chars): {result_text[:500] if result_text else 'EMPTY'}")
+            
+            if not result_text or not result_text.strip():
+                raise ValueError("OpenAI returned empty response")
+            
             # Clean potential markdown code blocks
             if result_text.startswith("```json"):
                 result_text = result_text.split("```json")[1].split("```")[0].strip()
@@ -190,7 +241,12 @@ Now analyze the provided P&ID drawing and return ONLY the JSON response."""
                 result_text = result_text.split("```")[1].split("```")[0].strip()
             
             import json
-            analysis_result = json.loads(result_text)
+            try:
+                analysis_result = json.loads(result_text)
+            except json.JSONDecodeError as e:
+                print(f"[ERROR] JSON Decode Error: {str(e)}")
+                print(f"[ERROR] Problematic text: {result_text[:1000]}")
+                raise ValueError(f"OpenAI returned invalid JSON: {str(e)}")
             
             # Validate and enrich response
             if 'issues' not in analysis_result:
@@ -215,7 +271,13 @@ Now analyze the provided P&ID drawing and return ONLY the JSON response."""
             
             return analysis_result
             
+        except json.JSONDecodeError as e:
+            print(f"[ERROR] JSON parsing failed: {str(e)}")
+            raise Exception(f"P&ID analysis failed: AI returned invalid JSON format. {str(e)}")
         except Exception as e:
+            print(f"[ERROR] P&ID analysis exception: {type(e).__name__}: {str(e)}")
+            import traceback
+            traceback.print_exc()
             raise Exception(f"P&ID analysis failed: {str(e)}")
     
     def generate_report_summary(self, issues: List[Dict]) -> Dict[str, int]:

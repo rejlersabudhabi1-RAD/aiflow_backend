@@ -47,6 +47,7 @@ INSTALLED_APPS = [
     'rest_framework',
     'corsheaders',
     'drf_spectacular',
+    'storages',  # AWS S3 storage backend
     
     # Local apps
     'apps.core',
@@ -178,3 +179,64 @@ SPECTACULAR_SETTINGS = {
     'VERSION': '1.0.0',
     'SERVE_INCLUDE_SCHEMA': False,
 }
+
+# ==============================================================================
+# AWS S3 CONFIGURATION (SECURE)
+# ==============================================================================
+
+# Enable S3 storage (set to True to use S3, False to use local storage)
+USE_S3 = config('USE_S3', default=False, cast=bool)
+
+if USE_S3:
+    # AWS Credentials - LOADED FROM ENVIRONMENT (NEVER HARDCODE)
+    # Boto3 automatically checks:
+    # 1. Environment variables: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY
+    # 2. IAM Role (EC2, ECS, Lambda) - PREFERRED for production
+    # 3. AWS credentials file (~/.aws/credentials)
+    
+    # DO NOT SET THESE IN CODE - Use environment variables or IAM roles
+    # AWS_ACCESS_KEY_ID = 'NEVER_HARDCODE_THIS'  ❌ WRONG
+    # AWS_SECRET_ACCESS_KEY = 'NEVER_HARDCODE_THIS'  ❌ WRONG
+    
+    # S3 Configuration
+    AWS_STORAGE_BUCKET_NAME = config('AWS_STORAGE_BUCKET_NAME', default='aiflow-pid-drawings')
+    AWS_S3_REGION_NAME = config('AWS_S3_REGION_NAME', default='us-east-1')
+    
+    # Security: Use AWS Signature Version 4 (required for some regions)
+    AWS_S3_SIGNATURE_VERSION = 's3v4'
+    
+    # Security: Enable encryption at rest
+    AWS_S3_ENCRYPTION = True
+    
+    # Security: All files are private by default
+    AWS_DEFAULT_ACL = 'private'
+    
+    # Security: Use presigned URLs instead of public URLs
+    AWS_S3_CUSTOM_DOMAIN = None
+    AWS_QUERYSTRING_AUTH = True
+    
+    # URL expiration for presigned URLs (1 hour)
+    AWS_QUERYSTRING_EXPIRE = 3600
+    
+    # Performance: Connection settings
+    AWS_S3_MAX_MEMORY_SIZE = 100 * 1024 * 1024  # 100MB
+    AWS_S3_FILE_OVERWRITE = False  # Don't overwrite files
+    
+    # Storage backends
+    DEFAULT_FILE_STORAGE = 'apps.core.storage_backends.MediaStorage'
+    STATICFILES_STORAGE = 'apps.core.storage_backends.StaticStorage'
+    
+    # Media files (uploaded by users)
+    MEDIA_URL = f'https://{AWS_STORAGE_BUCKET_NAME}.s3.{AWS_S3_REGION_NAME}.amazonaws.com/media/'
+    
+    # Static files
+    STATIC_URL = f'https://{AWS_STORAGE_BUCKET_NAME}.s3.{AWS_S3_REGION_NAME}.amazonaws.com/static/'
+else:
+    # Local storage configuration (development)
+    MEDIA_ROOT = BASE_DIR / 'media'
+    MEDIA_URL = '/media/'
+    STATIC_ROOT = BASE_DIR / 'staticfiles'
+    STATIC_URL = '/static/'
+
+# OpenAI Configuration (existing)
+OPENAI_API_KEY = config('OPENAI_API_KEY', default='')

@@ -3,8 +3,28 @@ from django.conf import settings
 from django.core.validators import FileExtensionValidator
 
 
+def pid_drawing_upload_path(instance, filename):
+    """
+    Generate S3-compatible upload path for P&ID drawings
+    Format: pid_drawings/{user_id}/{year}/{month}/{filename}
+    """
+    from datetime import datetime
+    now = datetime.now()
+    user_id = instance.uploaded_by.id if instance.uploaded_by else 'unknown'
+    return f'pid_drawings/{user_id}/{now.year}/{now.month:02d}/{filename}'
+
+
+def pid_report_upload_path(instance, filename):
+    """
+    Generate S3-compatible upload path for P&ID reports
+    Format: pid_reports/{drawing_id}/{filename}
+    """
+    drawing_id = instance.pid_drawing.id if instance.pid_drawing else 'unknown'
+    return f'pid_reports/{drawing_id}/{filename}'
+
+
 class PIDDrawing(models.Model):
-    """P&ID Drawing uploaded for analysis"""
+    """P&ID Drawing uploaded for analysis (S3-ready)"""
     
     STATUS_CHOICES = [
         ('uploaded', 'Uploaded'),
@@ -13,11 +33,12 @@ class PIDDrawing(models.Model):
         ('failed', 'Failed'),
     ]
     
-    # File information
+    # File information (S3-compatible)
     file = models.FileField(
-        upload_to='pid_drawings/%Y/%m/%d/',
+        upload_to=pid_drawing_upload_path,
         validators=[FileExtensionValidator(allowed_extensions=['pdf'])],
-        help_text='P&ID drawing in PDF format'
+        help_text='P&ID drawing in PDF format (stored in S3 if USE_S3=True)',
+        storage=None  # Uses DEFAULT_FILE_STORAGE from settings
     )
     original_filename = models.CharField(max_length=255)
     file_size = models.IntegerField(help_text='File size in bytes')
