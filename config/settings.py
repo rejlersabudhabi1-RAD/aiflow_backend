@@ -139,7 +139,7 @@ REST_FRAMEWORK = {
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
 }
 
-# CORS Configuration
+# CORS Configuration - Smart handling for development and production
 CORS_ALLOWED_ORIGINS = config(
     'CORS_ALLOWED_ORIGINS',
     default='http://localhost:3000,http://127.0.0.1:3000',
@@ -147,21 +147,20 @@ CORS_ALLOWED_ORIGINS = config(
 )
 CORS_ALLOW_CREDENTIALS = True
 
-# If frontend provides a VITE_API_URL environment variable (useful when both
-# services run in containers), extract its origin and add it to CORS_ALLOWED_ORIGINS
-vite_api = os.environ.get('VITE_API_URL') or os.environ.get('FRONTEND_URL')
-if vite_api:
-    try:
-        # Remove any trailing path (e.g., /api/v1)
-        origin = vite_api.split('//')[-1]
-        origin = origin.split('/')[0]
-        if not origin.startswith('http'):
-            origin = ('http://' + origin)
-        if origin not in CORS_ALLOWED_ORIGINS:
-            CORS_ALLOWED_ORIGINS.append(origin)
-    except Exception:
-        # If parsing fails, skip gracefully
-        pass
+# Auto-add Vercel deployment URLs
+# Vercel preview deployments follow pattern: *-git-*.vercel.app or *.vercel.app
+if not DEBUG:
+    # Allow all Vercel domains in production (or configure specific domain in env)
+    vercel_domain = config('VERCEL_URL', default='')
+    if vercel_domain:
+        vercel_origin = f'https://{vercel_domain}' if not vercel_domain.startswith('http') else vercel_domain
+        if vercel_origin not in CORS_ALLOWED_ORIGINS:
+            CORS_ALLOWED_ORIGINS.append(vercel_origin)
+    
+    # Also add production frontend domain if specified
+    frontend_url = config('FRONTEND_URL', default='')
+    if frontend_url and frontend_url not in CORS_ALLOWED_ORIGINS:
+        CORS_ALLOWED_ORIGINS.append(frontend_url)
 
 # Celery Configuration
 CELERY_BROKER_URL = config('CELERY_BROKER_URL', default='redis://redis:6379/0')
