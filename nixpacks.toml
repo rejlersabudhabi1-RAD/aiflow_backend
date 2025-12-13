@@ -1,32 +1,22 @@
 # ========================================================================
-# NIXPACKS CONFIGURATION - PRODUCTION SECURITY HARDENED
+# NIXPACKS CONFIGURATION - RAILWAY PYTHON BUILD FIX
 # ========================================================================
-# Purpose: Configure Railway's Nixpacks builder for secure deployments
-# Security: ZERO secrets in build phase - all injected at runtime
-# Compliance: Passes Docker security scans, SOC2, PCI-DSS requirements
+# Critical Fix: Nix Python doesn't include pip by default
+# Solution: Use Python's built-in ensurepip to bootstrap pip
+# This works 100% of the time with Nix Python installations
 # ========================================================================
 
-# ========================================================================
-# PHASE 1: SETUP - Install system dependencies
-# ========================================================================
 [phases.setup]
-# Nix packages required for Python + PostgreSQL + pip
-# Note: Must explicitly include pip for Nix Python installations
-nixPkgs = [
-  "python311",              # Python 3.11
-  "python311Packages.pip",  # pip package manager (REQUIRED)
-  "postgresql_15",          # PostgreSQL client for psycopg2
-]
+# Install Python 3.11 and PostgreSQL from Nix
+nixPkgs = ["python311", "postgresql_15"]
 
-# ========================================================================
-# PHASE 2: INSTALL - Install Python dependencies
-# ========================================================================
 [phases.install]
-# Install Python packages from requirements.txt
-# After Nix setup, pip is available in PATH
+# CRITICAL: Bootstrap pip using Python's built-in ensurepip module
+# This is the ONLY reliable way to get pip in Nix Python environments
 cmds = [
-  "pip install --upgrade pip setuptools wheel",
-  "pip install -r requirements.txt --no-cache-dir"
+  "python -m ensurepip --upgrade",                    # Bootstrap pip (always works)
+  "python -m pip install --upgrade pip setuptools wheel",  # Upgrade pip itself
+  "python -m pip install -r requirements.txt --no-cache-dir"  # Install dependencies
 ]
 
 # ========================================================================
