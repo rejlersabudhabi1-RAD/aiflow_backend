@@ -10,26 +10,23 @@
 # PHASE 1: SETUP - Install system dependencies
 # ========================================================================
 [phases.setup]
-# Nix packages required for Python + PostgreSQL
-# Note: python311 includes pip, setuptools, wheel automatically
+# Nix packages required for Python + PostgreSQL + pip
+# Note: Must explicitly include pip for Nix Python installations
 nixPkgs = [
-  "python311",      # Python 3.11 (includes pip)
-  "postgresql_15",  # PostgreSQL client for psycopg2
+  "python311",              # Python 3.11
+  "python311Packages.pip",  # pip package manager (REQUIRED)
+  "postgresql_15",          # PostgreSQL client for psycopg2
 ]
-
-# Environment setup (non-sensitive only)
-nixOverlays = []
-nixLibs = []
 
 # ========================================================================
 # PHASE 2: INSTALL - Install Python dependencies
 # ========================================================================
 [phases.install]
 # Install Python packages from requirements.txt
-# Using 'python -m pip' instead of 'pip' for PATH reliability
+# After Nix setup, pip is available in PATH
 cmds = [
-  "python -m pip install --upgrade pip setuptools wheel",
-  "python -m pip install -r requirements.txt --no-cache-dir"
+  "pip install --upgrade pip setuptools wheel",
+  "pip install -r requirements.txt --no-cache-dir"
 ]
 
 # ========================================================================
