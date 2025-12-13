@@ -13,6 +13,7 @@ urlpatterns = [
     
     # API endpoints
     path('api/v1/', include('apps.api.urls')),
+    path('api/v1/pid/', include('apps.pid_analysis.urls')),
     
     # API Documentation
     path('api/schema/', SpectacularAPIView.as_view(), name='schema'),

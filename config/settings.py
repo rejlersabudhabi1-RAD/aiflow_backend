@@ -52,6 +52,7 @@ INSTALLED_APPS = [
     'apps.core',
     'apps.users',
     'apps.api',
+    'apps.pid_analysis',
 ]
 
 MIDDLEWARE = [

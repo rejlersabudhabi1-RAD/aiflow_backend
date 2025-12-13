@@ -1,0 +1,145 @@
+from django.db import models
+from django.conf import settings
+from django.core.validators import FileExtensionValidator
+
+
+class PIDDrawing(models.Model):
+    """P&ID Drawing uploaded for analysis"""
+    
+    STATUS_CHOICES = [
+        ('uploaded', 'Uploaded'),
+        ('processing', 'Processing'),
+        ('completed', 'Completed'),
+        ('failed', 'Failed'),
+    ]
+    
+    # File information
+    file = models.FileField(
+        upload_to='pid_drawings/%Y/%m/%d/',
+        validators=[FileExtensionValidator(allowed_extensions=['pdf'])],
+        help_text='P&ID drawing in PDF format'
+    )
+    original_filename = models.CharField(max_length=255)
+    file_size = models.IntegerField(help_text='File size in bytes')
+    
+    # Drawing metadata
+    drawing_number = models.CharField(max_length=100, blank=True, help_text='P&ID number (e.g., 16-01-08-1678-1)')
+    drawing_title = models.CharField(max_length=255, blank=True)
+    revision = models.CharField(max_length=20, blank=True)
+    project_name = models.CharField(max_length=255, blank=True)
+    
+    # Analysis status
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='uploaded')
+    analysis_started_at = models.DateTimeField(null=True, blank=True)
+    analysis_completed_at = models.DateTimeField(null=True, blank=True)
+    
+    # User tracking
+    uploaded_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='pid_drawings'
+    )
+    
+    # Timestamps
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name = 'P&ID Drawing'
+        verbose_name_plural = 'P&ID Drawings'
+    
+    def __str__(self):
+        return f"{self.drawing_number or 'Unnamed'} - {self.original_filename}"
+
+
+class PIDAnalysisReport(models.Model):
+    """Analysis report generated for a P&ID drawing"""
+    
+    pid_drawing = models.OneToOneField(
+        PIDDrawing,
+        on_delete=models.CASCADE,
+        related_name='analysis_report'
+    )
+    
+    # Report summary
+    total_issues = models.IntegerField(default=0)
+    approved_count = models.IntegerField(default=0)
+    ignored_count = models.IntegerField(default=0)
+    pending_count = models.IntegerField(default=0)
+    
+    # Generated reports
+    report_data = models.JSONField(help_text='Full analysis report in JSON format')
+    pdf_report = models.FileField(
+        upload_to='pid_reports/%Y/%m/%d/',
+        null=True,
+        blank=True,
+        help_text='Generated PDF report'
+    )
+    excel_report = models.FileField(
+        upload_to='pid_reports/%Y/%m/%d/',
+        null=True,
+        blank=True,
+        help_text='Generated Excel report'
+    )
+    
+    # Timestamps
+    generated_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        verbose_name = 'P&ID Analysis Report'
+        verbose_name_plural = 'P&ID Analysis Reports'
+    
+    def __str__(self):
+        return f"Report for {self.pid_drawing.drawing_number or 'Unnamed'}"
+
+
+class PIDIssue(models.Model):
+    """Individual issue identified in P&ID analysis"""
+    
+    STATUS_CHOICES = [
+        ('pending', 'Pending'),
+        ('approved', 'Approved'),
+        ('ignored', 'Ignored'),
+    ]
+    
+    SEVERITY_CHOICES = [
+        ('critical', 'Critical'),
+        ('major', 'Major'),
+        ('minor', 'Minor'),
+        ('observation', 'Observation'),
+    ]
+    
+    report = models.ForeignKey(
+        PIDAnalysisReport,
+        on_delete=models.CASCADE,
+        related_name='issues'
+    )
+    
+    # Issue details
+    serial_number = models.IntegerField(help_text='Sequential issue number')
+    pid_reference = models.CharField(max_length=200, help_text='P&ID element reference (tag, line number, etc.)')
+    issue_observed = models.TextField(help_text='Detailed description of the issue')
+    action_required = models.TextField(help_text='Recommended corrective action')
+    
+    # Classification
+    severity = models.CharField(max_length=20, choices=SEVERITY_CHOICES, default='observation')
+    category = models.CharField(max_length=100, blank=True, help_text='Equipment, Instrumentation, Piping, etc.')
+    
+    # Review status
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    approval = models.CharField(max_length=50, default='Pending')
+    remark = models.TextField(blank=True, default='Pending')
+    
+    # Timestamps
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        ordering = ['serial_number']
+        verbose_name = 'P&ID Issue'
+        verbose_name_plural = 'P&ID Issues'
+    
+    def __str__(self):
+        return f"Issue #{self.serial_number} - {self.pid_reference}"
