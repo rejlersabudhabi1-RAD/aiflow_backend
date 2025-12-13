@@ -1,0 +1,21 @@
+# Nixpacks configuration for Railway deployment
+# Prevents security warnings about sensitive environment variables
+
+[phases.setup]
+nixPkgs = ["python311", "postgresql"]
+
+[phases.install]
+cmds = ["pip install -r requirements.txt"]
+
+[phases.build]
+# No build phase needed - Railway will inject environment variables at runtime
+# This prevents ARG/ENV security warnings
+
+[start]
+cmd = "python manage.py migrate --noinput && gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --workers 2 --timeout 120 --access-logfile - --error-logfile - --log-level info"
+
+[variables]
+# Railway will inject these at runtime, not build time
+# This prevents the SecretsUsedInArgOrEnv warnings
+PYTHONUNBUFFERED = "1"
+PYTHONDONTWRITEBYTECODE = "1"

@@ -47,7 +47,6 @@ INSTALLED_APPS = [
     'rest_framework',
     'corsheaders',
     'drf_spectacular',
-    'storages',  # AWS S3 storage backend
     
     # Local apps
     'apps.core',
@@ -55,6 +54,10 @@ INSTALLED_APPS = [
     'apps.api',
     'apps.pid_analysis',
 ]
+
+# Add storages only if S3 is enabled (prevents import errors when not needed)
+if config('USE_S3', default=False, cast=bool) and config('AWS_STORAGE_BUCKET_NAME', default=''):
+    INSTALLED_APPS.append('storages')
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
@@ -115,12 +118,9 @@ USE_I18N = True
 USE_TZ = True
 
 # Static files (CSS, JavaScript, Images)
-STATIC_URL = '/static/'
+# Note: STATIC_URL, STATIC_ROOT, MEDIA_URL, MEDIA_ROOT are configured
+# in the S3 section below based on USE_S3 setting
 STATIC_ROOT = BASE_DIR / 'staticfiles'
-STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
-
-MEDIA_URL = '/media/'
-MEDIA_ROOT = BASE_DIR / 'media'
 
 # Default primary key field type
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
@@ -241,12 +241,14 @@ if USE_S3:
         MEDIA_URL = '/media/'
         STATIC_ROOT = BASE_DIR / 'staticfiles'
         STATIC_URL = '/static/'
+        STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 else:
-    # Local storage configuration (development)
+    # Local storage configuration (development/production without S3)
     MEDIA_ROOT = BASE_DIR / 'media'
     MEDIA_URL = '/media/'
     STATIC_ROOT = BASE_DIR / 'staticfiles'
     STATIC_URL = '/static/'
+    STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
 # OpenAI Configuration (existing)
 OPENAI_API_KEY = config('OPENAI_API_KEY', default='')
