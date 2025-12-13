@@ -16,7 +16,23 @@ SECRET_KEY = config('SECRET_KEY', default='django-insecure-change-this-in-produc
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = config('DEBUG', default=False, cast=bool)
 
-ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='localhost,127.0.0.1', cast=lambda v: [s.strip() for s in v.split(',')])
+# Railway-friendly ALLOWED_HOSTS configuration
+ALLOWED_HOSTS_ENV = config('ALLOWED_HOSTS', default='localhost,127.0.0.1')
+if ALLOWED_HOSTS_ENV == '*':
+    ALLOWED_HOSTS = ['*']
+else:
+    ALLOWED_HOSTS = [s.strip() for s in ALLOWED_HOSTS_ENV.split(',')]
+
+# Add Railway domain automatically
+RAILWAY_STATIC_URL = config('RAILWAY_STATIC_URL', default='')
+if RAILWAY_STATIC_URL:
+    railway_domain = RAILWAY_STATIC_URL.replace('https://', '').replace('http://', '')
+    if railway_domain and railway_domain not in ALLOWED_HOSTS:
+        ALLOWED_HOSTS.append(railway_domain)
+
+# Add .railway.app domains
+if not any(host.endswith('.railway.app') or host == '*' for host in ALLOWED_HOSTS):
+    ALLOWED_HOSTS.append('.railway.app')
 
 # Application definition
 INSTALLED_APPS = [
