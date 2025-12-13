@@ -1,0 +1,46 @@
+# Local development
+*.pyc
+__pycache__/
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+
+# Environment and secrets
+.env
+.env.*
+*.key
+*.pem
+credentials/
+secrets/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Media and static (if using cloud storage)
+media/
+staticfiles/
+
+# Git
+.git/
+.gitignore
+
+# Docs
+*.md
+!README.md
+
+# Local database
+*.sqlite3
+db.sqlite3

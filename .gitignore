@@ -108,7 +108,6 @@ test-results/
 
 # Railway
 .railway/
-railway.toml
 
 # Backup files
 *.bak
