@@ -1,22 +1,20 @@
 # ========================================================================
-# NIXPACKS CONFIGURATION - RAILWAY PYTHON BUILD FIX
+# NIXPACKS CONFIGURATION - NIX PYTHON VIRTUAL ENVIRONMENT FIX
 # ========================================================================
-# Critical Fix: Nix Python doesn't include pip by default
-# Solution: Use Python's built-in ensurepip to bootstrap pip
-# This works 100% of the time with Nix Python installations
+# Critical: Nix Python is externally-managed (PEP 668)
+# Solution: Create virtual environment to bypass /nix/store restrictions
 # ========================================================================
 
 [phases.setup]
-# Install Python 3.11 and PostgreSQL from Nix
 nixPkgs = ["python311", "postgresql_15"]
 
 [phases.install]
-# CRITICAL: Bootstrap pip using Python's built-in ensurepip module
-# This is the ONLY reliable way to get pip in Nix Python environments
+# Create virtual environment and install packages inside it
+# This bypasses Nix's externally-managed-environment restriction
 cmds = [
-  "python -m ensurepip --upgrade",                    # Bootstrap pip (always works)
-  "python -m pip install --upgrade pip setuptools wheel",  # Upgrade pip itself
-  "python -m pip install -r requirements.txt --no-cache-dir"  # Install dependencies
+  "python -m venv /opt/venv",
+  "/opt/venv/bin/pip install --upgrade pip setuptools wheel",
+  "/opt/venv/bin/pip install -r requirements.txt --no-cache-dir"
 ]
 
 # ========================================================================
@@ -31,9 +29,8 @@ cmds = [
 # PHASE 4: START - Application runtime command
 # ========================================================================
 [start]
-# Railway automatically injects $PORT at runtime
-# Secrets (SECRET_KEY, DB_PASSWORD, etc.) loaded from Railway Variables
-cmd = "python manage.py migrate --noinput && gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --workers 2 --timeout 120 --access-logfile - --error-logfile - --log-level info"
+# Use Python from virtual environment (bypasses externally-managed-environment)
+cmd = "/opt/venv/bin/python manage.py migrate --noinput && /opt/venv/bin/gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --workers 2 --timeout 120 --access-logfile - --error-logfile - --log-level info"
 
 # ========================================================================
 # VARIABLES - Non-sensitive configuration ONLY
