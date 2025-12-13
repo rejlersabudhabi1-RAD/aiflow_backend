@@ -3,18 +3,22 @@
 # ========================================================================
 # Critical: Nix Python is externally-managed (PEP 668)
 # Solution: Create virtual environment to bypass /nix/store restrictions
+# Phase order: setup → install → build (app files copied AFTER install)
+# Fix: Move pip install to build phase (runs AFTER app code is copied)
 # ========================================================================
 
 [phases.setup]
 nixPkgs = ["python311", "postgresql_15"]
 
 [phases.install]
-# Create virtual environment and install packages inside it
-# Ensure we're in /app directory where requirements.txt is located
+# Create virtual environment only (no pip install yet - no files copied)
+cmds = ["python -m venv /opt/venv"]
+
+[phases.build]
+# Install dependencies AFTER app files are copied to /app
 cmds = [
-  "python -m venv /opt/venv",
   "/opt/venv/bin/pip install --upgrade pip setuptools wheel",
-  "cd /app && /opt/venv/bin/pip install -r requirements.txt --no-cache-dir"
+  "/opt/venv/bin/pip install -r requirements.txt --no-cache-dir"
 ]
 
 # ========================================================================
