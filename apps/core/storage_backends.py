@@ -18,7 +18,7 @@ class MediaStorage(S3Boto3Storage):
     """
     
     location = 'media'
-    default_acl = 'private'  # All files are private by default
+    default_acl = None  # Disable ACLs (use bucket policy instead)
     file_overwrite = False   # Don't overwrite files with same name
     custom_domain = False    # Use presigned URLs instead of public URLs
     
@@ -39,7 +39,7 @@ class StaticStorage(S3Boto3Storage):
     """
     
     location = 'static'
-    default_acl = 'public-read'  # Static files can be public
+    default_acl = None  # Disable ACLs (use bucket policy for public access)
     file_overwrite = True         # Overwrite on deployment
     
     # Cache static files for 1 year (immutable)
