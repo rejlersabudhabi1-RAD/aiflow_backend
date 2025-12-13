@@ -198,39 +198,49 @@ if USE_S3:
     # AWS_ACCESS_KEY_ID = 'NEVER_HARDCODE_THIS'  ❌ WRONG
     # AWS_SECRET_ACCESS_KEY = 'NEVER_HARDCODE_THIS'  ❌ WRONG
     
-    # S3 Configuration
-    AWS_STORAGE_BUCKET_NAME = config('AWS_STORAGE_BUCKET_NAME', default='aiflow-pid-drawings')
-    AWS_S3_REGION_NAME = config('AWS_S3_REGION_NAME', default='us-east-1')
+    # Only configure S3 if bucket name is set (prevents startup errors)
+    AWS_STORAGE_BUCKET_NAME = config('AWS_STORAGE_BUCKET_NAME', default='')
     
-    # Security: Use AWS Signature Version 4 (required for some regions)
-    AWS_S3_SIGNATURE_VERSION = 's3v4'
-    
-    # Security: Enable encryption at rest
-    AWS_S3_ENCRYPTION = True
-    
-    # Security: All files are private by default
-    AWS_DEFAULT_ACL = 'private'
-    
-    # Security: Use presigned URLs instead of public URLs
-    AWS_S3_CUSTOM_DOMAIN = None
-    AWS_QUERYSTRING_AUTH = True
-    
-    # URL expiration for presigned URLs (1 hour)
-    AWS_QUERYSTRING_EXPIRE = 3600
-    
-    # Performance: Connection settings
-    AWS_S3_MAX_MEMORY_SIZE = 100 * 1024 * 1024  # 100MB
-    AWS_S3_FILE_OVERWRITE = False  # Don't overwrite files
-    
-    # Storage backends
-    DEFAULT_FILE_STORAGE = 'apps.core.storage_backends.MediaStorage'
-    STATICFILES_STORAGE = 'apps.core.storage_backends.StaticStorage'
-    
-    # Media files (uploaded by users)
-    MEDIA_URL = f'https://{AWS_STORAGE_BUCKET_NAME}.s3.{AWS_S3_REGION_NAME}.amazonaws.com/media/'
-    
-    # Static files
-    STATIC_URL = f'https://{AWS_STORAGE_BUCKET_NAME}.s3.{AWS_S3_REGION_NAME}.amazonaws.com/static/'
+    if AWS_STORAGE_BUCKET_NAME:
+        # S3 Configuration
+        AWS_S3_REGION_NAME = config('AWS_S3_REGION_NAME', default='us-east-1')
+        
+        # Security: Use AWS Signature Version 4 (required for some regions)
+        AWS_S3_SIGNATURE_VERSION = 's3v4'
+        
+        # Security: Enable encryption at rest
+        AWS_S3_ENCRYPTION = True
+        
+        # Security: All files are private by default
+        AWS_DEFAULT_ACL = 'private'
+        
+        # Security: Use presigned URLs instead of public URLs
+        AWS_S3_CUSTOM_DOMAIN = None
+        AWS_QUERYSTRING_AUTH = True
+        
+        # URL expiration for presigned URLs (1 hour)
+        AWS_QUERYSTRING_EXPIRE = 3600
+        
+        # Performance: Connection settings
+        AWS_S3_MAX_MEMORY_SIZE = 100 * 1024 * 1024  # 100MB
+        AWS_S3_FILE_OVERWRITE = False  # Don't overwrite files
+        
+        # Storage backends
+        DEFAULT_FILE_STORAGE = 'apps.core.storage_backends.MediaStorage'
+        STATICFILES_STORAGE = 'apps.core.storage_backends.StaticStorage'
+        
+        # Media files (uploaded by users)
+        MEDIA_URL = f'https://{AWS_STORAGE_BUCKET_NAME}.s3.{AWS_S3_REGION_NAME}.amazonaws.com/media/'
+        
+        # Static files
+        STATIC_URL = f'https://{AWS_STORAGE_BUCKET_NAME}.s3.{AWS_S3_REGION_NAME}.amazonaws.com/static/'
+    else:
+        # S3 enabled but bucket not configured - use local storage
+        print("⚠️  USE_S3=True but AWS_STORAGE_BUCKET_NAME not set. Using local storage.")
+        MEDIA_ROOT = BASE_DIR / 'media'
+        MEDIA_URL = '/media/'
+        STATIC_ROOT = BASE_DIR / 'staticfiles'
+        STATIC_URL = '/static/'
 else:
     # Local storage configuration (development)
     MEDIA_ROOT = BASE_DIR / 'media'
