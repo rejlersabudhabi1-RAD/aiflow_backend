@@ -1,26 +1,16 @@
 # ========================================================================
-# NIXPACKS CONFIGURATION - NIX PYTHON VIRTUAL ENVIRONMENT FIX
+# NIXPACKS CONFIGURATION - SIMPLIFIED
 # ========================================================================
-# Critical: Nix Python is externally-managed (PEP 668)
-# Solution: Create virtual environment to bypass /nix/store restrictions
-# Phase order: setup → install → build (app files copied AFTER install)
-# Fix: Move pip install to build phase (runs AFTER app code is copied)
+# Using custom build script instead of inline commands
+# This ensures proper context and working directory
 # ========================================================================
 
 [phases.setup]
 nixPkgs = ["python311", "postgresql_15"]
 
-[phases.install]
-# Create virtual environment only (no pip install yet - no files copied)
-cmds = ["python -m venv /opt/venv"]
-
 [phases.build]
-# Install dependencies AFTER app files are copied to /app
-# Use ABSOLUTE PATH to requirements.txt
-cmds = [
-  "/opt/venv/bin/pip install --upgrade pip setuptools wheel",
-  "/opt/venv/bin/pip install -r /app/requirements.txt --no-cache-dir"
-]
+# Run custom build script (executes in /app with all files present)
+cmds = ["bash build.sh"]
 
 # ========================================================================
 # PHASE 4: START - Application runtime command
