@@ -16,10 +16,10 @@ cmds = ["python -m venv /opt/venv"]
 
 [phases.build]
 # Install dependencies AFTER app files are copied to /app
-# Static files handled by WhiteNoise at runtime (no collectstatic)
+# Use ABSOLUTE PATH to requirements.txt
 cmds = [
   "/opt/venv/bin/pip install --upgrade pip setuptools wheel",
-  "/opt/venv/bin/pip install -r requirements.txt --no-cache-dir"
+  "/opt/venv/bin/pip install -r /app/requirements.txt --no-cache-dir"
 ]
 
 # ========================================================================
