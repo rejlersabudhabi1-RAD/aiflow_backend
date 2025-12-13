@@ -16,18 +16,11 @@ cmds = ["python -m venv /opt/venv"]
 
 [phases.build]
 # Install dependencies AFTER app files are copied to /app
+# Static files handled by WhiteNoise at runtime (no collectstatic)
 cmds = [
   "/opt/venv/bin/pip install --upgrade pip setuptools wheel",
   "/opt/venv/bin/pip install -r requirements.txt --no-cache-dir"
 ]
-
-# ========================================================================
-# PHASE 3: BUILD - Prepare application (NO SECRETS)
-# ========================================================================
-[phases.build]
-# NO BUILD COMMANDS - Static files handled by WhiteNoise at runtime
-# collectstatic REMOVED - causes failures without S3 credentials
-# All secrets loaded at runtime via Railway environment variables
 
 # ========================================================================
 # PHASE 4: START - Application runtime command
@@ -41,46 +34,5 @@ cmd = "/opt/venv/bin/python manage.py migrate --noinput && /opt/venv/bin/gunicor
 # ========================================================================
 [variables]
 # ✅ SAFE: Python runtime optimization (non-sensitive)
-PYTHONUNBUFFERED = "1"           # Disable output buffering
-PYTHONDONTWRITEBYTECODE = "1"    # Don't create .pyc files
-
-# ❌ NEVER PUT HERE:
-# - AWS_ACCESS_KEY_ID
-# - AWS_SECRET_ACCESS_KEY  
-# - SECRET_KEY
-# - DB_PASSWORD
-# - OPENAI_API_KEY
-# - Any passwords, tokens, or API keys
-#
-# ✅ INSTEAD: Set in Railway Dashboard → Project → Variables
-# Railway injects these at RUNTIME, not BUILD time
-# This prevents secrets from being baked into Docker image layers
-
-# ========================================================================
-# SECURITY NOTES
-# ========================================================================
-# 1. NO SECRETS IN THIS FILE
-#    - All secrets set in Railway Dashboard → Variables
-#    - Injected into container environment at runtime
-#    - Never stored in Docker image layers
-#
-# 2. BUILD PHASE ISOLATION
-#    - Build phase has ZERO access to secrets
-#    - Only installs code and dependencies
-#    - Secrets loaded when container starts
-#
-# 3. IMAGE SECURITY
-#    - Anyone can safely inspect Docker image
-#    - No credentials extractable from layers
-#    - Passes security scans (Trivy, Grype, Snyk)
-#
-# 4. AUDIT COMPLIANCE
-#    - Meets SOC2 Type II requirements
-#    - PCI-DSS compliant secret handling
-#    - HIPAA-ready architecture
-#
-# 5. INCIDENT RESPONSE
-#    - Secret rotation: Update Railway Variables only
-#    - No image rebuild required
-#    - Zero downtime credential updates
-# ========================================================================
+PYTHONUNBUFFERED = "1"
+PYTHONDONTWRITEBYTECODE = "1"
