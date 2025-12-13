@@ -10,11 +10,11 @@ nixPkgs = ["python311", "postgresql_15"]
 
 [phases.install]
 # Create virtual environment and install packages inside it
-# This bypasses Nix's externally-managed-environment restriction
+# Ensure we're in /app directory where requirements.txt is located
 cmds = [
   "python -m venv /opt/venv",
   "/opt/venv/bin/pip install --upgrade pip setuptools wheel",
-  "/opt/venv/bin/pip install -r requirements.txt --no-cache-dir"
+  "cd /app && /opt/venv/bin/pip install -r requirements.txt --no-cache-dir"
 ]
 
 # ========================================================================
