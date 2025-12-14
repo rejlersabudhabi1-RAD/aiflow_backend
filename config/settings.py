@@ -141,12 +141,19 @@ REST_FRAMEWORK = {
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
 }
 
-# CORS Configuration - Smart handling for development and production
-CORS_ALLOWED_ORIGINS = config(
-    'CORS_ALLOWED_ORIGINS',
-    default='http://localhost:3000,http://127.0.0.1:3000',
-    cast=lambda v: [s.strip() for s in v.split(',')]
-)
+# CORS Configuration - Permanent fix for production
+# Always allow these origins
+CORS_ALLOWED_ORIGINS = [
+    'http://localhost:3000',
+    'http://127.0.0.1:3000',
+    'https://airflow-frontend.vercel.app',  # Production Vercel URL
+]
+
+# Add any additional origins from environment variable
+additional_origins = config('CORS_ALLOWED_ORIGINS', default='', cast=str)
+if additional_origins:
+    CORS_ALLOWED_ORIGINS.extend([s.strip() for s in additional_origins.split(',') if s.strip()])
+
 CORS_ALLOW_CREDENTIALS = True
 
 # Allow all Vercel deployments using regex pattern (includes previews and production)
@@ -154,8 +161,7 @@ CORS_ALLOWED_ORIGIN_REGEXES = [
     r"^https://.*\.vercel\.app$",  # All Vercel deployments
 ]
 
-# Auto-add Vercel deployment URLs
-# Vercel preview deployments follow pattern: *-git-*.vercel.app or *.vercel.app
+# Auto-add dynamic Vercel deployment URLs
 if not DEBUG:
     # Allow all Vercel domains in production (or configure specific domain in env)
     vercel_domain = config('VERCEL_URL', default='')
@@ -168,6 +174,32 @@ if not DEBUG:
     frontend_url = config('FRONTEND_URL', default='')
     if frontend_url and frontend_url not in CORS_ALLOWED_ORIGINS:
         CORS_ALLOWED_ORIGINS.append(frontend_url)
+
+# Debug: Print CORS settings on startup
+print(f"[CORS] Allowed Origins: {CORS_ALLOWED_ORIGINS}")
+print(f"[CORS] Allowed Origin Regexes: {CORS_ALLOWED_ORIGIN_REGEXES}")
+
+# Additional CORS settings for proper functionality
+CORS_ALLOW_METHODS = [
+    'DELETE',
+    'GET',
+    'OPTIONS',
+    'PATCH',
+    'POST',
+    'PUT',
+]
+
+CORS_ALLOW_HEADERS = [
+    'accept',
+    'accept-encoding',
+    'authorization',
+    'content-type',
+    'dnt',
+    'origin',
+    'user-agent',
+    'x-csrftoken',
+    'x-requested-with',
+]
 
 # Celery Configuration
 CELERY_BROKER_URL = config('CELERY_BROKER_URL', default='redis://redis:6379/0')
