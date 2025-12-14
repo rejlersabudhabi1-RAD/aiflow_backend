@@ -149,6 +149,11 @@ CORS_ALLOWED_ORIGINS = config(
 )
 CORS_ALLOW_CREDENTIALS = True
 
+# Allow all Vercel deployments using regex pattern (includes previews and production)
+CORS_ALLOWED_ORIGIN_REGEXES = [
+    r"^https://.*\.vercel\.app$",  # All Vercel deployments
+]
+
 # Auto-add Vercel deployment URLs
 # Vercel preview deployments follow pattern: *-git-*.vercel.app or *.vercel.app
 if not DEBUG:
