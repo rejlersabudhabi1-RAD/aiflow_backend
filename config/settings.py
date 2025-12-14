@@ -62,7 +62,8 @@ if config('USE_S3', default=False, cast=bool) and config('AWS_STORAGE_BUCKET_NAM
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'whitenoise.middleware.WhiteNoiseMiddleware',
-    'corsheaders.middleware.CorsMiddleware',
+    'apps.core.middleware.CorsMiddleware',  # Custom CORS middleware - FIRST
+    'corsheaders.middleware.CorsMiddleware',  # Django CORS headers - BACKUP
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
