@@ -146,6 +146,8 @@ REST_FRAMEWORK = {
 CORS_ALLOWED_ORIGINS = [
     'http://localhost:3000',
     'http://127.0.0.1:3000',
+    'http://localhost:5173',
+    'http://127.0.0.1:5173',
     'https://airflow-frontend.vercel.app',  # Production Vercel URL
 ]
 
@@ -155,10 +157,12 @@ if additional_origins:
     CORS_ALLOWED_ORIGINS.extend([s.strip() for s in additional_origins.split(',') if s.strip()])
 
 CORS_ALLOW_CREDENTIALS = True
+CORS_ALLOW_ALL_ORIGINS = False  # Set to True only for testing, False for production
 
 # Allow all Vercel deployments using regex pattern (includes previews and production)
 CORS_ALLOWED_ORIGIN_REGEXES = [
     r"^https://.*\.vercel\.app$",  # All Vercel deployments
+    r"^http://localhost:\d+$",  # All localhost ports
 ]
 
 # Auto-add dynamic Vercel deployment URLs
@@ -175,9 +179,23 @@ if not DEBUG:
     if frontend_url and frontend_url not in CORS_ALLOWED_ORIGINS:
         CORS_ALLOWED_ORIGINS.append(frontend_url)
 
+# CSRF Trusted Origins - CRITICAL for production
+CSRF_TRUSTED_ORIGINS = [
+    'https://airflow-frontend.vercel.app',
+    'https://aiflowbackend-production.up.railway.app',
+]
+
+# Add Railway domain dynamically
+railway_domain = config('RAILWAY_PUBLIC_DOMAIN', default='')
+if railway_domain:
+    csrf_origin = f'https://{railway_domain}' if not railway_domain.startswith('http') else railway_domain
+    if csrf_origin not in CSRF_TRUSTED_ORIGINS:
+        CSRF_TRUSTED_ORIGINS.append(csrf_origin)
+
 # Debug: Print CORS settings on startup
 print(f"[CORS] Allowed Origins: {CORS_ALLOWED_ORIGINS}")
 print(f"[CORS] Allowed Origin Regexes: {CORS_ALLOWED_ORIGIN_REGEXES}")
+print(f"[CSRF] Trusted Origins: {CSRF_TRUSTED_ORIGINS}")
 
 # Additional CORS settings for proper functionality
 CORS_ALLOW_METHODS = [
