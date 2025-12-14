@@ -91,8 +91,9 @@ class PIDDrawingViewSet(viewsets.ModelViewSet):
                 # Perform analysis
                 print(f"[DEBUG] Initializing PIDAnalysisService")
                 analysis_service = PIDAnalysisService()
-                print(f"[DEBUG] Calling analyze_pid_drawing with path: {drawing.file.path}")
-                analysis_result = analysis_service.analyze_pid_drawing(drawing.file.path)
+                print(f"[DEBUG] Calling analyze_pid_drawing with file: {drawing.file.name}")
+                # Pass the file object directly (works with both S3 and local storage)
+                analysis_result = analysis_service.analyze_pid_drawing(drawing.file)
                 print(f"[DEBUG] Analysis completed, result keys: {list(analysis_result.keys())}")
                 
                 # Create report
@@ -191,7 +192,8 @@ class PIDDrawingViewSet(viewsets.ModelViewSet):
             
             # Perform analysis
             analysis_service = PIDAnalysisService()
-            analysis_result = analysis_service.analyze_pid_drawing(drawing.file.path)
+            # Pass the file object directly (works with both S3 and local storage)
+            analysis_result = analysis_service.analyze_pid_drawing(drawing.file)
             
             # Delete existing report if any
             if hasattr(drawing, 'analysis_report'):

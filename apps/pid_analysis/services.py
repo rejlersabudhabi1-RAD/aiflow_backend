@@ -135,21 +135,29 @@ Now analyze the provided P&ID drawing and return ONLY the JSON response."""
             raise ValueError("OPENAI_API_KEY is not configured")
         self.client = OpenAI(api_key=api_key)
     
-    def pdf_to_images(self, pdf_path: str, dpi: int = 200) -> List[str]:
+    def pdf_to_images(self, pdf_file, dpi: int = 150) -> List[str]:
         """
-        Convert PDF pages to base64-encoded images using PyMuPDF
+        Convert PDF pages to base64-encoded images
         
         Args:
-            pdf_path: Path to the PDF file
-            dpi: Resolution for image conversion (default 200 for good quality)
+            pdf_file: Either a file path (str) or a file-like object (Django FileField)
+            dpi: DPI for image conversion (default 150)
         
         Returns:
             List of base64-encoded PNG images
         """
         images_base64 = []
         
-        # Open PDF with PyMuPDF
-        pdf_document = fitz.open(pdf_path)
+        # Handle both file paths and file objects (S3/Django FileField)
+        if isinstance(pdf_file, str):
+            # Local file path
+            pdf_document = fitz.open(pdf_file)
+        else:
+            # File object (from S3 or Django FileField)
+            # Read file content into memory
+            pdf_file.seek(0)  # Ensure we're at the start
+            pdf_bytes = pdf_file.read()
+            pdf_document = fitz.open(stream=pdf_bytes, filetype="pdf")
         
         try:
             # Convert each page to image
@@ -173,19 +181,19 @@ Now analyze the provided P&ID drawing and return ONLY the JSON response."""
         
         return images_base64
     
-    def analyze_pid_drawing(self, pdf_path: str) -> Dict[str, Any]:
+    def analyze_pid_drawing(self, pdf_file) -> Dict[str, Any]:
         """
         Analyze P&ID drawing using OpenAI GPT-4 Vision
         
         Args:
-            pdf_path: Path to the P&ID PDF file
+            pdf_file: Either a file path (str) or a Django FileField object
         
         Returns:
             Dictionary containing analysis results
         """
         try:
             # Convert PDF pages to images
-            images_base64 = self.pdf_to_images(pdf_path)
+            images_base64 = self.pdf_to_images(pdf_file)
             
             if not images_base64:
                 raise ValueError("Failed to convert PDF to images")
