@@ -15,6 +15,7 @@ def create_admin():
     User = get_user_model()
     
     email = 'tanzeem.agra@rejlers.ae'
+    username = 'tanzeem'
     password = 'Tanzeem@123'
     
     # Check if user exists
@@ -30,6 +31,7 @@ def create_admin():
     else:
         # Create new superuser
         user = User.objects.create_superuser(
+            username=username,
             email=email,
             password=password,
             first_name='Tanzeem',
