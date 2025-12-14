@@ -265,6 +265,46 @@ class PIDDrawingViewSet(viewsets.ModelViewSet):
             PIDAnalysisReportSerializer(drawing.analysis_report).data,
             status=status.HTTP_200_OK
         )
+    
+    @action(detail=True, methods=['get'])
+    def export(self, request, pk=None):
+        """
+        Export report in different formats (PDF, Excel, CSV)
+        
+        GET /api/v1/pid/drawings/{id}/export/?format=pdf|excel|csv
+        """
+        from .export_service import PIDReportExportService
+        
+        drawing = self.get_object()
+        
+        if not hasattr(drawing, 'analysis_report'):
+            return Response(
+                {'error': 'No analysis report available'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        export_format = request.query_params.get('format', 'pdf')
+        export_service = PIDReportExportService()
+        
+        try:
+            if export_format == 'pdf':
+                return export_service.export_pdf(drawing)
+            elif export_format == 'excel':
+                return export_service.export_excel(drawing)
+            elif export_format == 'csv':
+                return export_service.export_csv(drawing)
+            else:
+                return Response(
+                    {'error': 'Invalid format. Use pdf, excel, or csv'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            return Response(
+                {'error': f'Export failed: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
 
 class PIDAnalysisReportViewSet(viewsets.ReadOnlyModelViewSet):
@@ -297,6 +337,31 @@ class PIDIssueViewSet(viewsets.ModelViewSet):
         if self.action in ['update', 'partial_update']:
             return IssueUpdateSerializer
         return PIDIssueSerializer
+    
+    def partial_update(self, request, *args, **kwargs):
+        """Handle PATCH requests for updating issue fields"""
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        self.perform_update(serializer)
+        
+        # Update report counts after any change
+        self._update_report_counts(instance.report)
+        
+        return Response(PIDIssueSerializer(instance).data)
+    
+    def update(self, request, *args, **kwargs):
+        """Handle PUT requests for updating issue"""
+        partial = kwargs.pop('partial', False)
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        self.perform_update(serializer)
+        
+        # Update report counts after any change
+        self._update_report_counts(instance.report)
+        
+        return Response(PIDIssueSerializer(instance).data)
     
     @action(detail=True, methods=['post'])
     def approve(self, request, pk=None):

@@ -112,8 +112,22 @@ class PIDDrawingUploadSerializer(serializers.Serializer):
 
 
 class IssueUpdateSerializer(serializers.ModelSerializer):
-    """Serializer for updating issue status"""
+    """Serializer for updating issue status, severity, and other fields"""
     
     class Meta:
         model = PIDIssue
-        fields = ['status', 'approval', 'remark']
+        fields = ['severity', 'status', 'approval', 'remark']
+        
+    def validate_severity(self, value):
+        """Validate severity choices"""
+        valid_choices = ['critical', 'major', 'minor', 'observation']
+        if value not in valid_choices:
+            raise serializers.ValidationError(f"Invalid severity. Must be one of: {', '.join(valid_choices)}")
+        return value
+    
+    def validate_status(self, value):
+        """Validate status choices"""
+        valid_choices = ['pending', 'approved', 'ignored']
+        if value not in valid_choices:
+            raise serializers.ValidationError(f"Invalid status. Must be one of: {', '.join(valid_choices)}")
+        return value
