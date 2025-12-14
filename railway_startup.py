@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 """
 Railway deployment startup script
-Ensures proper initialization and health check
+Ensures proper initialization and creates superuser
 """
 import os
 import sys
@@ -15,6 +15,55 @@ sys.path.insert(0, str(BASE_DIR))
 # Setup Django
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'config.settings')
 django.setup()
+
+def create_superuser():
+    """Create or update superuser"""
+    from django.contrib.auth import get_user_model
+    User = get_user_model()
+    
+    email = 'tanzeem.agra@rejlers.ae'
+    username = 'tanzeem'
+    password = 'Tanzeem@123'
+    
+    print("\n" + "="*50)
+    print("CREATING SUPERUSER")
+    print("="*50)
+    
+    try:
+        user = User.objects.filter(email=email).first()
+        
+        if user:
+            print(f"✓ User {email} already exists - updating...")
+            user.set_password(password)
+            user.is_superuser = True
+            user.is_staff = True
+            user.is_active = True
+            user.is_verified = True
+            user.save()
+            print(f"✓ Updated user {email}")
+        else:
+            user = User.objects.create_superuser(
+                email=email,
+                username=username,
+                password=password
+            )
+            user.is_verified = True
+            user.save()
+            print(f"✓ Created superuser {email}")
+        
+        print("\n" + "="*50)
+        print("LOGIN CREDENTIALS")
+        print("="*50)
+        print(f"Email: {email}")
+        print(f"Password: {password}")
+        print("="*50 + "\n")
+        
+        return True
+    except Exception as e:
+        print(f"✗ Error creating superuser: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
 
 def check_health():
     """Verify the application is ready"""
@@ -46,12 +95,17 @@ def check_health():
 
 if __name__ == "__main__":
     print("=" * 50)
-    print("Railway Deployment Health Check")
+    print("Railway Deployment Initialization")
     print("=" * 50)
     
     if check_health():
-        print("\n✓ Application is ready to serve traffic")
-        sys.exit(0)
+        print("\n✓ Health check passed")
+        if create_superuser():
+            print("\n✓ Application is ready to serve traffic")
+            sys.exit(0)
+        else:
+            print("\n⚠ Superuser creation failed but continuing...")
+            sys.exit(0)
     else:
         print("\n✗ Application not ready")
         sys.exit(1)
