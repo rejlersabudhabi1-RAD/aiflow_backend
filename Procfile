@@ -1,4 +1,4 @@
-web: python manage.py migrate --noinput && gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --workers 2 --timeout 120 --access-logfile - --error-logfile - --log-level info
+web: python manage.py migrate --noinput && python manage.py setup_superuser && gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --workers 2 --timeout 120 --access-logfile - --error-logfile - --log-level info
 worker: celery -A config worker -l info --concurrency=2
 beat: celery -A config beat -l info
-release: python manage.py migrate --noinput
+release: python manage.py migrate --noinput && python manage.py setup_superuser
