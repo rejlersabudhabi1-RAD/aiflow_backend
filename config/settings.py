@@ -59,6 +59,7 @@ INSTALLED_APPS = [
     'apps.pid_analysis',
     'apps.pfd_converter',
     'apps.crs',
+    'apps.crs_documents',
     # Add new features here - no core changes needed!
 ]
 
