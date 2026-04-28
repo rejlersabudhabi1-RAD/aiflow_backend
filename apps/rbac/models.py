@@ -374,6 +374,21 @@ class UserProfile(TimeStampedModel):
                 rolemodule__role_id__in=user_role_ids,
                 is_active=True
             ).distinct())
+
+            # Soft-coded global access modules (for all authenticated users)
+            try:
+                from apps.rbac.discipline_config import DisciplineAccessConfig
+                global_codes = DisciplineAccessConfig.get_globally_enabled_module_codes()
+                if global_codes:
+                    global_modules = list(Module.objects.filter(code__in=global_codes, is_active=True))
+                    existing_ids = {m.id for m in modules}
+                    for mod in global_modules:
+                        if mod.id not in existing_ids:
+                            modules.append(mod)
+            except Exception:
+                # Non-fatal: keep role-based modules if config resolution fails
+                pass
+
             # Cache for 5 minutes
             cache.set(cache_key, modules, 300)
         
@@ -458,6 +473,81 @@ class UserStorage(TimeStampedModel):
     def s3_path(self):
         """Full S3 path"""
         return f"s3://{self.s3_bucket}/{self.s3_key}"
+
+
+class EngineerProfile(TimeStampedModel):
+    """
+    Dedicated engineering competency & project-assignment profile for each user.
+    One-to-one with UserProfile — stored in its own DB table (rbac_engineer_profiles).
+    """
+    EXPERTISE_CHOICES = [
+        ('junior',    'Junior'),
+        ('mid',       'Mid-Level'),
+        ('senior',    'Senior'),
+        ('principal', 'Principal'),
+        ('lead',      'Lead'),
+        ('manager',   'Engineering Manager'),
+    ]
+    AVAILABILITY_CHOICES = [
+        ('available',  'Available'),
+        ('partial',    'Partially Available'),
+        ('busy',       'Fully Committed'),
+        ('on_leave',   'On Leave'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user_profile = models.OneToOneField(
+        UserProfile,
+        on_delete=models.CASCADE,
+        related_name='engineer_profile',
+    )
+
+    # Competency
+    expertise_level           = models.CharField(max_length=20, choices=EXPERTISE_CHOICES, blank=True)
+    years_experience          = models.PositiveIntegerField(default=0)
+    engineering_disciplines   = models.JSONField(default=list, blank=True)   # ["Process", "Piping", …]
+    technical_skills          = models.JSONField(default=list, blank=True)   # [{"name": "HYSYS", "proficiency": 4}, …]
+    languages                 = models.JSONField(default=list, blank=True)   # ["English", "Arabic"]
+    certifications            = models.JSONField(default=list, blank=True)   # [{name, issuer, year, expiry_date, id}, …]
+
+    # Availability
+    availability_status       = models.CharField(max_length=20, choices=AVAILABILITY_CHOICES, default='available')
+    availability_percentage   = models.PositiveIntegerField(default=100)
+    next_available_date       = models.DateField(null=True, blank=True)
+    max_concurrent_projects   = models.PositiveIntegerField(default=2)
+    preferred_project_types   = models.JSONField(default=list, blank=True)  # ["FEED", "Greenfield …"]
+
+    # Current project assignments (management visibility)
+    current_projects          = models.JSONField(default=list, blank=True)  # [{name, client, role, allocation, …}, …]
+
+    class Meta:
+        db_table = 'rbac_engineer_profiles'
+        verbose_name = 'Engineer Profile'
+        verbose_name_plural = 'Engineer Profiles'
+        indexes = [
+            models.Index(fields=['expertise_level']),
+            models.Index(fields=['availability_status']),
+        ]
+
+    def __str__(self):
+        return f"EngineerProfile({self.user_profile.user.email})"
+
+    def to_dict(self):
+        """Serialise to the same shape the frontend expects."""
+        return {
+            'expertise_level':          self.expertise_level,
+            'years_experience':         self.years_experience,
+            'engineering_disciplines':  self.engineering_disciplines,
+            'technical_skills':         self.technical_skills,
+            'languages':                self.languages,
+            'certifications':           self.certifications,
+            'availability_status':      self.availability_status,
+            'availability_percentage':  self.availability_percentage,
+            'next_available_date':      str(self.next_available_date) if self.next_available_date else '',
+            'max_concurrent_projects':  self.max_concurrent_projects,
+            'preferred_project_types':  self.preferred_project_types,
+            'current_projects':         self.current_projects,
+        }
 
 
 class AuditLog(TimeStampedModel):

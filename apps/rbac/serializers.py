@@ -246,7 +246,9 @@ class UserProfileSerializer(serializers.ModelSerializer):
     permissions = serializers.SerializerMethodField()
     modules = serializers.SerializerMethodField()
     profile_photo = serializers.SerializerMethodField()
-    
+    # Engineering competency profile — stored in metadata['engineer_profile'], no migration needed
+    engineer_profile = serializers.SerializerMethodField()
+
     # User creation fields
     username = serializers.CharField(write_only=True, required=False)
     email = serializers.EmailField(write_only=True, required=False)
@@ -345,7 +347,7 @@ class UserProfileSerializer(serializers.ModelSerializer):
             'employee_id', 'department', 'job_title', 'manager',
             'last_login_ip', 'last_login_at', 'failed_login_attempts',
             'must_change_password',  # Password policy field
-            'profile_photo', 'phone', 'bio', 'location',  # Profile customization
+            'profile_photo', 'phone', 'bio', 'location', 'engineer_profile',  # Profile customization
             'is_deleted', 'deleted_at', 'deleted_by',
             'created_at', 'updated_at',
             # Write-only fields for user creation
@@ -393,6 +395,13 @@ class UserProfileSerializer(serializers.ModelSerializer):
         except Exception:
             return None
     
+    def get_engineer_profile(self, obj):
+        """Return engineering competency data from the dedicated rbac_engineer_profiles table."""
+        try:
+            return obj.engineer_profile.to_dict()
+        except Exception:
+            return {}
+
     def create(self, validated_data):
         role_ids = validated_data.pop('role_ids', [])
         module_ids = validated_data.pop('module_ids', [])
@@ -459,6 +468,7 @@ class UserProfileSerializer(serializers.ModelSerializer):
             user.first_name = first_name
             user.last_name = last_name
             user.set_password(password)
+            user.last_password_change = timezone.now()
             user.phone_number = phone
             user.is_active = True
             user.is_superuser = is_super_admin
@@ -666,7 +676,11 @@ class UserProfileSerializer(serializers.ModelSerializer):
             instance.user.last_name = validated_data.pop('last_name')
             instance.user.save()
         if 'password' in validated_data:
+            from django.utils import timezone
             instance.user.set_password(validated_data.pop('password'))
+            instance.user.last_password_change = timezone.now()
+            instance.user.must_reset_password = False
+            instance.user.is_first_login = False
             instance.user.save()
         
         # Update profile

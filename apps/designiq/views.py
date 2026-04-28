@@ -37,21 +37,72 @@ logger = logging.getLogger(__name__)
 # Progress is written to /tmp/base_extraction_{task_id}.json so every
 # Gunicorn worker on the same container can read it during polling.
 # ---------------------------------------------------------------------------
-def _run_base_extraction_in_thread(task_id, file_path, filename, include_area, format_type):
+def _extract_pid_no_per_page(file_path: str) -> dict:
+    """
+    Build a {page_index (1-based): dwg_no} map for a P&ID PDF.
+
+    Reuses the title-block drawing-number extractor from apps.pid_analysis
+    (text-based fallback + PyMuPDF coord-based), called per page so each line
+    row can be stamped with the P&ID drawing number it belongs to. Returns
+    an empty dict on any failure — caller falls back gracefully.
+
+    Soft-coded: no new knobs here; all behaviour flows from the existing
+    title-block constants in equipment_analysis_views.
+    """
+    page_map: dict = {}
+    try:
+        import fitz as _fitz  # PyMuPDF — already a project dependency
+        from apps.pid_analysis.equipment_analysis_views import (
+            _extract_titleblock_dwg_no,
+        )
+        doc = _fitz.open(file_path)
+        try:
+            for _pg_idx in range(len(doc)):
+                try:
+                    _text = doc[_pg_idx].get_text() or ''
+                    _dwg = _extract_titleblock_dwg_no(_text) or ''
+                except Exception:
+                    _dwg = ''
+                page_map[_pg_idx + 1] = _dwg  # 1-based to match pid_ocr_extractor
+        finally:
+            doc.close()
+    except Exception as _e:
+        logger.warning(f'[base_extract_thread] P&ID No. per-page extraction failed: {_e}')
+    return page_map
+
+
+def _run_base_extraction_in_thread(task_id, file_path, filename, include_area, format_type, legend_file_path=None):
     """Spawn a daemon thread that runs P&ID OCR and writes progress to /tmp/."""
     progress_file = f'/tmp/base_extraction_{task_id}.json'
 
-    def _write(state, percent, status_msg, result=None, error=None):
+    def _write(state, percent, status_msg, result=None, error=None, **extra):
         payload = {'task_id': task_id, 'state': state, 'percent': percent, 'status': status_msg}
         if result is not None:
             payload['result'] = result
         if error is not None:
             payload['error'] = error
+        if extra:
+            payload.update(extra)
         try:
             with open(progress_file, 'w') as fh:
                 json.dump(payload, fh)
         except Exception as we:
             logger.warning(f'[base_extract_thread] progress write failed: {we}')
+
+    # Soft-coded progress band for the per-page loop (same shape as Celery task).
+    _PAGE_PROG_START = 20
+    _PAGE_PROG_END   = 80
+
+    def _page_progress(page_num, total_pages, lines_so_far, phase):
+        span = _PAGE_PROG_END - _PAGE_PROG_START
+        frac = max(0.0, min(1.0, (page_num - 1) / max(1, total_pages)))
+        percent = int(_PAGE_PROG_START + span * frac)
+        _write(
+            'PROGRESS', percent,
+            f'Page {page_num}/{total_pages} — {lines_so_far} lines extracted so far…',
+            current_page=page_num, total_pages=total_pages,
+            lines_so_far=lines_so_far, phase=phase,
+        )
 
     def _run():
         try:
@@ -59,29 +110,94 @@ def _run_base_extraction_in_thread(task_id, file_path, filename, include_area, f
             from apps.designiq.pid_ocr_extractor_v2 import PIDLineExtractorV2
             _write('PROGRESS', 5, 'Initializing OCR engine…')
             extractor = PIDLineExtractorV2()
+
+            # Load legend knowledge if a legend file was uploaded
+            service_codes = {}
+            insulation_codes = {}
+            if legend_file_path and os.path.exists(legend_file_path):
+                try:
+                    from apps.pid_verification.services.legend_knowledge import (
+                        extract_text_from_pdf, parse_legend_knowledge,
+                    )
+                    _write('PROGRESS', 10, 'Parsing legend sheet…')
+                    legend_text = extract_text_from_pdf(legend_file_path)
+                    legend_data = parse_legend_knowledge(legend_text)
+                    service_codes = legend_data.get('service_codes', {})
+                    insulation_codes = legend_data.get('insulation_codes', {})
+                    logger.info(
+                        f'[base_extract_thread] legend: {len(service_codes)} service codes, '
+                        f'{len(insulation_codes)} insulation codes'
+                    )
+                except Exception as le:
+                    logger.warning(f'[base_extract_thread] legend parse failed: {le}')
+                finally:
+                    try:
+                        os.unlink(legend_file_path)
+                    except Exception:
+                        pass
+
             _write('PROGRESS', 15, f'Running extraction on {filename}…')
             extracted_lines = extractor.extract_from_pdf(
                 file_path,
                 include_area=include_area,
                 format_type=format_type,
+                progress_callback=_page_progress,
             )
             _write('PROGRESS', 85, f'OCR complete: {len(extracted_lines)} lines found. Formatting…')
-            # Build 8-column output structure with EXPLICIT field mapping
-            # Column order: Original Detection, Fluid Code, Size, Sequence No, PIPR Class, Insulation, From, To
-            # Note: For offshore format, area is parsed internally but NOT exported as a separate column
+            # ── Per-page drawing-number (P&ID No.) extraction ────────────────
+            # Soft-coded: reuses pid_analysis title-block logic unchanged.
+            # Builds a {page_index_1based: dwg_no} dict used below. Any failure
+            # is non-fatal — the pid_no field simply remains empty.
+            _page_to_dwg = _extract_pid_no_per_page(file_path)
+            _doc_dwg = next((v for v in _page_to_dwg.values() if v), '')
+            logger.info(
+                f'[base_extract_thread] P&ID No. map: {_page_to_dwg} (doc fallback={_doc_dwg!r})'
+            )
+
+            # ── Soft-coded breaker / page-connector inference ────────────────
+            # Fills empty from_line / to_line by spatial proximity to breaker
+            # tags (E3-SP-XXXX, TP-..., IP-..., etc.). Patterns and thresholds
+            # live in apps/designiq/breaker_inference.py — edit there freely.
+            # Pure post-processing; never overwrites existing values; runs only
+            # while the temp PDF is still on disk.
+            try:
+                from apps.designiq.breaker_inference import infer_breakers_for_lines
+                _write('PROGRESS', 90, 'Inferring From/To from page-connector breakers…')
+                infer_breakers_for_lines(extracted_lines, file_path)
+            except Exception as _be:
+                logger.warning(f'[base_extract_thread] breaker inference skipped: {_be}')
+
+            # Build 10-column output structure with EXPLICIT field mapping
+            # Columns: Original Detection, Size, Fluid Code, Fluid Description,
+            #          Sequence No, Piping Spec, Piping Spec Desc, Dept Deviation,
+            #          Insulation, Insulation Description, P&ID No.
             base_data = []
             for line in extracted_lines:
+                fluid = line.get('fluid_code', '')
+                insul = line.get('insulation', '')
+                piping_spec = line.get('piping_spec', line.get('pipr_class', ''))
+                _pg = line.get('page')
+                _pid_no = _page_to_dwg.get(_pg, '') or _doc_dwg
                 base_data.append({
-                    'original_detection': line.get('original_detection', line.get('line_number', '')),
-                    'fluid_code':         line.get('fluid_code', ''),
-                    'size':               line.get('size', ''),
-                    'sequence_no':        line.get('sequence_no', ''),
-                    'pipr_class':         line.get('pipr_class', ''),
-                    'insulation':         line.get('insulation', ''),
-                    'from':               line.get('from_line', line.get('from_equipment', '')),
-                    'to':                 line.get('to_line',   line.get('to_equipment', '')),
+                    'original_detection':  line.get('original_detection', line.get('line_number', '')),
+                    'size':                line.get('size', ''),
+                    'fluid_code':          fluid,
+                    'fluid_description':   service_codes.get(fluid.upper(), ''),
+                    'sequence_no':         line.get('sequence_no', ''),
+                    'piping_spec':         piping_spec,
+                    'dept_deviation':      line.get('dept_deviation', ''),
+                    'insulation':          insul,
+                    'insulation_desc':     insulation_codes.get(insul.upper(), ''),
+                    # From / To — produced by spatial / vision / geometric /
+                    # breaker-inference passes upstream. Frontend column resolver
+                    # has fallback keys so any of these surfaces correctly.
+                    'from_line':           line.get('from_line', ''),
+                    'to_line':             line.get('to_line', ''),
+                    'from_equipment':      line.get('from_equipment', ''),
+                    'to_equipment':        line.get('to_equipment', ''),
+                    'pid_no':              _pid_no,
                 })
-            logger.info(f'[base_extract_thread] Formatted {len(base_data)} rows with 8 columns (area excluded from export)')
+            logger.info(f'[base_extract_thread] Formatted {len(base_data)} rows with 10 columns (pid_no enriched)')
             if os.path.exists(file_path):
                 try:
                     os.unlink(file_path)
@@ -91,7 +207,7 @@ def _run_base_extraction_in_thread(task_id, file_path, filename, include_area, f
                 'success': True,
                 'total_lines': len(base_data),
                 'data': base_data,
-                'columns': 8,
+                'columns': 11,
                 'message': f'Successfully extracted {len(base_data)} lines from {filename}',
             }
             _write('SUCCESS', 100, 'Extraction complete!', result=result)
@@ -1450,6 +1566,16 @@ class EngineeringListItemViewSet(viewsets.ModelViewSet):
                     "error": f"No line items found for document ID: {document_id}"
                 }, status=status.HTTP_404_NOT_FOUND)
             
+            # Log sample data to debug
+            first_item = items.first()
+            logger.info(f"📋 Sample item data keys: {list(first_item.data.keys())}")
+            logger.info(f"📋 Has criticality_stress? {'criticality_stress' in first_item.data}")
+            if 'criticality_stress' in first_item.data:
+                logger.info(f"📋 Sample criticality_stress value: {first_item.data['criticality_stress']}")
+            else:
+                logger.warning(f"⚠️ criticality_stress NOT FOUND in database! Old data needs re-upload.")
+                logger.info(f"📋 All available keys: {list(first_item.data.keys())}")
+            
             # Create workbook
             wb = Workbook()
             ws = wb.active
@@ -1459,11 +1585,24 @@ class EngineeringListItemViewSet(viewsets.ModelViewSet):
             header_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
             header_font = Font(color="FFFFFF", bold=True, size=11)
             
-            # Define headers
+            # Define headers - Include ALL enriched columns (17 base + 26 enriched + criticality_stress)
             headers = [
+                # Base columns (17)
                 'Line Number', 'Size', 'Fluid Code', 'Fluid Description',
                 'Sequence No', 'Pipe Class', 'Insulation', 'Area',
-                'FROM', 'TO', 'Criticality Stress', 'Status', 'Validated'
+                'FROM', 'TO', 'Flow Detection Method', 'Flow Confidence',
+                'Page', 'Confidence', 'Document ID', 'Filename', 'Upload Date',
+                # Enriched columns (26)
+                'Flow Medium', 'Two Phase', 'Surge Flow', 'Flow Max', 'Density',
+                'Normal Pressure', 'Normal Temp', 'Design Pressure', 'Minimax Design Temp',
+                'Design Code', 'Category M Fluid', 'Schedule / Wall THK', 'Stress Relief',
+                'PWHT', 'RT', 'MT/PT', 'Hardness', 'Visual', 'NACE MR 0175',
+                'Piping Rated Pressure', 'Test Pressure', 'Test Medium',
+                'PID No', 'PID Rev', 'Date', 'Criticality Code',
+                # Stress criticality column (1)
+                'Criticality Stress',
+                # Status columns (2)
+                'Status', 'Validated'
             ]
             
             ws.append(headers)
@@ -1478,6 +1617,7 @@ class EngineeringListItemViewSet(viewsets.ModelViewSet):
             # Add data rows
             for item in items:
                 ws.append([
+                    # Base columns (17)
                     item.item_tag,
                     item.data.get('size', ''),
                     item.data.get('fluid_code', ''),
@@ -1488,7 +1628,43 @@ class EngineeringListItemViewSet(viewsets.ModelViewSet):
                     item.data.get('area', ''),
                     item.data.get('from_line', ''),
                     item.data.get('to_line', ''),
+                    item.data.get('flow_detection_method', ''),
+                    item.data.get('flow_confidence', ''),
+                    item.data.get('page', ''),
+                    item.data.get('confidence', ''),
+                    item.data.get('document_id', ''),
+                    item.data.get('filename', ''),
+                    item.data.get('upload_date', ''),
+                    # Enriched columns (26)
+                    item.data.get('flow_medium', ''),
+                    item.data.get('two_phase', ''),
+                    item.data.get('surge_flow', ''),
+                    item.data.get('flow_max', ''),
+                    item.data.get('density', ''),
+                    item.data.get('normal_pressure', ''),
+                    item.data.get('normal_temp', ''),
+                    item.data.get('design_pressure', ''),
+                    item.data.get('minimax_design_temp', ''),
+                    item.data.get('design_code', ''),
+                    item.data.get('category_m_fluid', ''),
+                    item.data.get('schedule_wall_thk', ''),
+                    item.data.get('stress_relief', ''),
+                    item.data.get('pwht', ''),
+                    item.data.get('rt', ''),
+                    item.data.get('mt_pt', ''),
+                    item.data.get('hardness', ''),
+                    item.data.get('visual', ''),
+                    item.data.get('nace_mr_0175', ''),
+                    item.data.get('piping_rated_pressure', ''),
+                    item.data.get('test_pressure', ''),
+                    item.data.get('test_medium', ''),
+                    item.data.get('pid_no', ''),
+                    item.data.get('pid_rev', ''),
+                    item.data.get('date', ''),
+                    item.data.get('criticality_code', ''),
+                    # Stress criticality column (1)
                     item.data.get('criticality_stress', 'N/A'),
+                    # Status columns (2)
                     item.status,
                     'Yes' if item.is_validated else 'No'
                 ])
@@ -1709,13 +1885,25 @@ class EngineeringListItemViewSet(viewsets.ModelViewSet):
             logger.info(f"📍 Format: {format_type}, Include Area: {include_area}")
 
             # ------------------------------------------------------------------
-            # 2. Save to a temporary file (Celery worker needs a path on disk)
+            # 2. Save P&ID to a temporary file (Celery worker needs a path on disk)
             # ------------------------------------------------------------------
             import tempfile
             with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp_file:
                 for chunk in pid_file.chunks():
                     tmp_file.write(chunk)
                 tmp_path = tmp_file.name
+
+            # Save legend file if provided
+            legend_tmp_path = None
+            legend_file = request.FILES.get('legend_file')
+            if legend_file:
+                if not legend_file.name.lower().endswith('.pdf'):
+                    return Response({'error': 'Legend file must be a PDF'}, status=status.HTTP_400_BAD_REQUEST)
+                with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as leg_tmp:
+                    for chunk in legend_file.chunks():
+                        leg_tmp.write(chunk)
+                    legend_tmp_path = leg_tmp.name
+                logger.info(f"📋 Legend file: {legend_file.name}")
 
             logger.info(f"💾 Saved to temp file: {tmp_path}")
 
@@ -1797,7 +1985,7 @@ class EngineeringListItemViewSet(viewsets.ModelViewSet):
                 _mode        = 'thread'
                 _run_base_extraction_in_thread(
                     _task_id_str, tmp_path, pid_file.name,
-                    include_area, format_type,
+                    include_area, format_type, legend_tmp_path,
                 )
 
             # ------------------------------------------------------------------

@@ -149,7 +149,7 @@ urlpatterns = [
     path('api/v1/finance/', include('apps.finance.urls')),  # Finance Invoice Automation
     path('api/v1/designiq/', include('apps.designiq.urls')),  # DesignIQ - AI Design Intelligence
     path('api/v1/process-datasheet/', include('apps.process_datasheet.urls')),  # Process Datasheet
-    path('api/v1/electrical/', include('apps.electrical_datasheet.urls')),  # Electrical Datasheet with Transformer Verification
+    path('api/v1/electrical-datasheet/', include('apps.electrical_datasheet.urls')),  # Electrical Datasheet with Transformer & Switchgear
     path('api/v1/usage/', include('apps.usage_tracking.urls')),  # Usage Tracking & Internal Analytics
     path('api/v1/projects/', include('apps.core.project_urls')),
 ]
@@ -178,6 +178,30 @@ if is_app_installed('apps.sales'):
 if is_app_installed('apps.wrench_integration'):
     urlpatterns.append(path('api/v1/wrench/', include('apps.wrench_integration.urls')))
     print("[URL] ✅ Wrench Integration URLs registered")
+
+# P&ID Verification — deterministic quality checker
+if is_app_installed('apps.pid_verification'):
+    urlpatterns.append(path('api/v1/pid-verification/', include('apps.pid_verification.urls')))
+    print("[URL] ✅ P&ID Verification URLs registered")
+
+# SLD Verification — electrical single line diagram quality checker
+if is_app_installed('apps.sld_verification'):
+    urlpatterns.append(path('api/v1/sld-verification/', include('apps.sld_verification.urls')))
+    print("[URL] ✅ SLD Verification URLs registered")
+
+# PFD Quality Checker — deterministic rule engine
+if is_app_installed('apps.pfd_quality'):
+    urlpatterns.append(path('api/v1/pfd-quality/', include('apps.pfd_quality.urls')))
+    print("[URL] ✅ PFD Quality URLs registered")
+
+# Cross Recommendation Bridge — PID ↔ PFD smart suggestions
+if is_app_installed('apps.cross_recommendation'):
+    urlpatterns.append(path('api/v1/cross-recommendation/', include('apps.cross_recommendation.urls')))
+
+# Non-TEFF Metadata Extractor — multi-format document metadata extraction
+if is_app_installed('apps.non_teff_metadata'):
+    urlpatterns.append(path('api/v1/non-teff/', include('apps.non_teff_metadata.urls')))
+    print("[URL] ✅ Cross Recommendation URLs registered")
 
 # MLflow Model Orchestration API (DISABLED - not in use)
 # urlpatterns.extend([
