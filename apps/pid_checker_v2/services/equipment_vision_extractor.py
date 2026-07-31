@@ -34,6 +34,8 @@ from .vision_extractor import (
     VISION_TILE_OVERLAP_FRAC,
     VISION_TILE_MAX_DIMENSION_PX,
     VISION_OVERVIEW_MAX_DIMENSION_PX,
+    VISION_CONSENSUS_MIN_HITS,
+    VISION_KEEP_UNCONFIRMED,
     _render_pages,
     _tile_image,
     _downscale,
@@ -200,6 +202,7 @@ def extract_equipment_tags_via_vision(
 
     all_raw: list[str] = []
     merged: dict[str, dict] = {}
+    hit_counts: dict[str, int] = {}
     call_count = 0
 
     from .token_accounting import UsageMeter
@@ -213,7 +216,7 @@ def extract_equipment_tags_via_vision(
             meter.add(provider, model, in_t, out_t)
             call_count += 1
             all_raw.append(f'[page {page_idx} overview]\n{raw}')
-            _merge_tags(merged, _parse_equipment_list(raw))
+            _merge_tags(merged, _parse_equipment_list(raw), hit_counts)
 
         for tile_idx, tile in enumerate(_tile_image(page_image,
                                                     VISION_TILE_ROWS,
@@ -224,9 +227,26 @@ def extract_equipment_tags_via_vision(
             meter.add(provider, model, in_t, out_t)
             call_count += 1
             all_raw.append(f'[page {page_idx} tile {tile_idx}]\n{raw}')
-            _merge_tags(merged, _parse_equipment_list(raw))
+            _merge_tags(merged, _parse_equipment_list(raw), hit_counts)
 
-    tags_sorted = sorted(merged.values(), key=lambda t: (t.get('kind') or '', t.get('tag') or ''))
+    # Consensus filter — see vision_extractor.py for the rationale.
+    min_hits = 1 if VISION_KEEP_UNCONFIRMED else max(1, int(VISION_CONSENSUS_MIN_HITS))
+    if call_count <= 1:
+        min_hits = 1
+    confirmed: dict[str, dict] = {}
+    for tag_str, tag in merged.items():
+        hits = hit_counts.get(tag_str, 0)
+        if hits >= min_hits:
+            enriched = dict(tag)
+            enriched['hit_count'] = hits
+            enriched['confidence'] = round(hits / max(call_count, 1), 3)
+            confirmed[tag_str] = enriched
+    dropped = len(merged) - len(confirmed)
+    if dropped:
+        logger.info("[equipment-vision] consensus filter kept %d/%d tags (min_hits=%d, passes=%d)",
+                    len(confirmed), len(merged), min_hits, call_count)
+
+    tags_sorted = sorted(confirmed.values(), key=lambda t: (t.get('kind') or '', t.get('tag') or ''))
     return {
         'provider': provider,
         'model': model,
@@ -234,6 +254,8 @@ def extract_equipment_tags_via_vision(
         'raw': '\n\n---\n\n'.join(all_raw),
         'call_count': call_count,
         'token_usage': meter.summary(),
+        'consensus_min_hits': min_hits,
+        'dropped_by_consensus': dropped,
     }
 
 
@@ -242,13 +264,19 @@ def _call_vision(provider: str, api_key: str, image_b64: str):
     return _shared_call_vision(provider, api_key, image_b64, VISION_USER_PROMPT)
 
 
-def _merge_tags(merged: dict[str, dict], new_tags: list[dict]) -> None:
+def _merge_tags(merged: dict[str, dict], new_tags: list[dict], hit_counts: dict[str, int] | None = None) -> None:
     """Merge new tags into the accumulator, keeping the richest description
-    and the richest non-empty value for each equipment attribute."""
+    and the richest non-empty value for each equipment attribute. Each unique
+    tag observed in this pass increments its hit_count (used by the consensus
+    filter to drop hallucinations that only ever appear in one pass)."""
+    seen_in_pass: set[str] = set()
     for t in new_tags:
         tag = t.get('tag')
         if not tag:
             continue
+        if hit_counts is not None and tag not in seen_in_pass:
+            hit_counts[tag] = hit_counts.get(tag, 0) + 1
+            seen_in_pass.add(tag)
         existing = merged.get(tag)
         if not existing:
             merged[tag] = t
